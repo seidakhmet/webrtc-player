@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <script
+      src="https://code.jquery.com/jquery-3.6.0.min.js"
+      integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4="
+      crossorigin="anonymous"
+    ></script>
+    <script src="static/js/lib/adapter.js"></script>
+  </head>
+  <body>
+    <div>
+      <div>
+        <video id="remVideo" width="400px" height="auto"></video>
+      </div>
+      <div>
+        <video id="remVideo1" width="400px" height="auto"></video>
+      </div>
+    </div>
+    
+    
+    <script>
+      let addStream = function (suuid, vid) {
+        function getRemoteSdp(suuid) {
+          $.post(
+            "http://127.0.0.1:8083/stream/receiver/" + suuid,
+            {
+              suuid: suuid,
+              data: btoa(pc.localDescription.sdp),
+            },
+            function (data) {
+              try {
+                pc.setRemoteDescription(
+                  new RTCSessionDescription({
+                    type: "answer",
+                    sdp: atob(data),
+                  })
+                );
+              } catch (e) {
+                console.warn(e);
+              }
+            }
+          );
+        }
+
+        function getCodecInfo(suuid) {
+          $.get("http://127.0.0.1:8083/stream/codec/" + suuid, function (data) {
+            try {
+              data = JSON.parse(data);
+            } catch (e) {
+              console.log(e);
+            } finally {
+              $.each(data, function (index, value) {
+                pc.addTransceiver(value.Type, {
+                  direction: "sendrecv",
+                });
+              });
+              //send ping becouse PION not handle RTCSessionDescription.close()
+              sendChannel = pc.createDataChannel("foo");
+              sendChannel.onclose = () => console.log("sendChannel has closed");
+              sendChannel.onopen = () => {
+                console.log("sendChannel has opened");
+                sendChannel.send("ping");
+                setInterval(() => {
+                  sendChannel.send("ping");
+                }, 1000);
+              };
+              sendChannel.onmessage = (e) =>
+                console.log(
+                  `Message from DataChannel '${sendChannel.label}' payload '${e.data}'`
+                );
+            }
+          });
+        }
+
+        let stream = new MediaStream();
+        const pc = new RTCPeerConnection({});
+        pc.onnegotiationneeded = handleNegotiationNeededEvent;
+
+        pc.ontrack = function (event) {
+          stream.addTrack(event.track);
+          vid.srcObject = stream;
+        };
+
+        pc.oniceconnectionstatechange = (e) =>
+          console.log(pc.iceConnectionState);
+
+        async function handleNegotiationNeededEvent() {
+          let offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          getRemoteSdp(suuid);
+        }
+        $(document).ready(function () {
+          getCodecInfo(suuid);
+        });
+      };
+
+      $(document).ready(function () {
+        addStream("PTZ", document.getElementById("remVideo1"));
+        addStream("trub", document.getElementById("remVideo"));
+      });
+    </script>
+  </body>
+</html>
